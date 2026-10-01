@@ -62,7 +62,7 @@ function SendDialog({ item, from, testTo, busy, onCancel, onConfirm }) {
   )
 }
 
-function EmailCard({ item, from, edit, onChange, onSave, onSend, busy }) {
+function EmailCard({ item, from, testTo, edit, onChange, onSave, onSend, busy }) {
   const dirty = edit && (edit.subject !== item.subject || edit.body !== item.body)
   const [label, cls] = STATUS[item.status] || STATUS.draft
   const subject = edit?.subject ?? item.subject
@@ -110,7 +110,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
     setState((s) => ({ ...s, loading: true }))
     try {
       const r = await api.emails()
-      setState({ loaded: true, loading: false, emails: r.emails, from: r.from, provider: r.provider, configured: r.configured, interview_at: r.interview_at, test_recipient: r.test_recipient })
+      setState({ loaded: true, loading: false, emails: r.emails, from: r.from, configured: r.configured, interview_at: r.interview_at, test_recipient: r.test_recipient })
       setEdits((e) => Object.fromEntries(Object.entries(e).filter(([id, v]) => {
         const it = r.emails.find((x) => x.candidate_id === id)
         return it && (v.subject !== it.subject || v.body !== it.body)
@@ -164,7 +164,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
   const { emails, loaded, loading } = state
   const drafts = emails.filter((e) => e.status !== 'sent').length
   const testTo = state.test_recipient
-  const testSender = !testTo && state.provider === 'resend' && /onboarding@resend\.dev/i.test(state.from)
+  const testSender = !testTo && /onboarding@resend\.dev/i.test(state.from)
 
   return (
     <section aria-labelledby="emails-h">
@@ -176,7 +176,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
         <p>Drafts are written only for <strong>shortlisted</strong> candidates. <strong>Nothing is sent until you review an email and confirm.</strong> You can edit any draft before sending.</p>
         <p className="muted" style={{ marginTop: 6 }}>From: {state.from || 'not set'} - Venue and phone number are filled in automatically.</p>
         {testTo && <p className="queue-note" style={{ color: 'var(--amber-fg)' }} role="status"><strong>Test mode:</strong> every email is sent to {testTo} only, not to candidates, and drafts stay unsent. Verify a domain in Resend and remove RESEND_TEST_RECIPIENT to email candidates.</p>}
-        {!state.configured && <p className="error-text" role="alert">Email sending is not configured on the server (no Gmail or Resend settings found).</p>}
+        {!state.configured && <p className="error-text" role="alert">Email sending is not configured on the server (RESEND_API_KEY is missing).</p>}
         {testSender && <p className="queue-note" style={{ color: 'var(--amber-fg)' }}>The sender is Resend's test address, which only delivers to your own Resend account email. Verify a domain in Resend and set RESEND_FROM to send to candidates.</p>}
         <div className="date-row">
           <label htmlFor="interview-when" className="field-label" style={{ margin: 0 }}>Interview date and time</label>
@@ -195,7 +195,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
           <p className="summary-line" style={{ marginBottom: 12 }}>{emails.length} email{emails.length === 1 ? '' : 's'} - {drafts} not yet sent</p>
           <div className="email-list">
             {emails.map((it) => (
-              <EmailCard key={it.candidate_id} item={it} from={state.from} edit={edits[it.candidate_id]} busy={busyId === it.candidate_id}
+              <EmailCard key={it.candidate_id} item={it} from={state.from} testTo={testTo} edit={edits[it.candidate_id]} busy={busyId === it.candidate_id}
                 onChange={(id, v) => setEdits((e) => ({ ...e, [id]: v }))} onSave={save} onSend={setConfirm} />
             ))}
           </div>

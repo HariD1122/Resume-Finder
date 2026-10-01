@@ -5,10 +5,6 @@ request from the Emails tab; see POST /api/emails/{id}/send.
 """
 import html
 import os
-import smtplib
-import ssl
-from email.message import EmailMessage
-from email.utils import formataddr, make_msgid
 
 import httpx
 
@@ -20,26 +16,16 @@ PHONE = "1122334455"
 ROLE_TITLES = {"PM": "Product Manager", "SPM": "Senior Product Manager"}
 
 
-def provider() -> str:
-    """'gmail' when GMAIL_USER and GMAIL_APP_PASSWORD are set (sends to anyone, no domain needed), else 'resend'."""
-    return "gmail" if os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD") else "resend"
-
-
 def configured() -> bool:
-    return provider() == "gmail" or bool(os.environ.get("RESEND_API_KEY"))
+    return bool(os.environ.get("RESEND_API_KEY"))
 
 
 def from_display() -> str:
-    if provider() == "gmail":
-        return formataddr((os.environ.get("GMAIL_FROM_NAME") or "Arjun Mehta", os.environ["GMAIL_USER"]))
     return os.environ.get("RESEND_FROM") or "Arjun Mehta <onboarding@resend.dev>"
 
 
 def test_recipient():
-    """Resend sandbox only: when set (RESEND_TEST_RECIPIENT), every send goes to this address only, as a labelled test.
-    Never active with Gmail, which can deliver to any address."""
-    if provider() == "gmail":
-        return None
+    """Resend sandbox: when set (RESEND_TEST_RECIPIENT), every send goes to this address only, as a labelled test."""
     return (os.environ.get("RESEND_TEST_RECIPIENT") or "").strip() or None
 
 
@@ -104,32 +90,8 @@ def _to_html(text: str) -> str:
 
 
 def send_email(to: str, subject: str, text: str, idempotency_key: str) -> str:
-    """Sends through the active provider and returns a message id. Tests monkeypatch this."""
-    if provider() == "gmail":
-        return _send_gmail(to, subject, text)
+    """Sends through Resend and returns the message id. Tests monkeypatch this."""
     return _send_resend(to, subject, text, idempotency_key)
-
-
-def _send_gmail(to: str, subject: str, text: str) -> str:
-    user = os.environ["GMAIL_USER"]
-    msg = EmailMessage()
-    msg["From"] = from_display()
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg["Message-ID"] = make_msgid(domain=user.split("@")[-1])
-    msg.set_content(text)
-    msg.add_alternative(_to_html(text), subtype="html")
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30, context=ssl.create_default_context()) as smtp:
-            smtp.login(user, os.environ["GMAIL_APP_PASSWORD"].replace(" ", ""))
-            smtp.send_message(msg)
-    except smtplib.SMTPAuthenticationError:
-        raise ApiError(502, "email_auth", "Gmail rejected the login. Check GMAIL_USER and the app password (2-Step Verification must be on).")
-    except smtplib.SMTPRecipientsRefused:
-        raise ApiError(502, "email_rejected", "Gmail refused this recipient address. Check the candidate's email.")
-    except (smtplib.SMTPException, OSError):
-        raise ApiError(502, "email_unreachable", "Gmail could not be reached or refused the message. Nothing was confirmed as sent; please retry.")
-    return msg["Message-ID"]
 
 
 def _send_resend(to: str, subject: str, text: str, idempotency_key: str) -> str:

@@ -138,7 +138,7 @@ def health(request: Request):
         sb = False
     gm = gemini.gemini_ok()
     return {"status": "ok" if sb and gm else "degraded", "supabase": sb, "gemini": gm,
-            "access_required": required, "email_configured": mailer.configured(), "email_provider": mailer.provider(),
+            "access_required": required, "email_configured": mailer.configured(),
             "counts": {k: counts.get(k, 0) for k in ("candidates", "PM", "SPM")},
             "latest_updated_at": counts.get("latest_updated_at"),
             "latest_by_role": counts.get("latest_by_role", {}),
@@ -369,7 +369,7 @@ def list_emails():
         rows.append(_email_view(c, e))
     rows.sort(key=lambda r: (r["status"] == "sent", r["role"], -r["weighted_score"]))
     return {"count": len(rows), "emails": rows, "interview_at": default_date,
-            "from": mailer.from_display(), "provider": mailer.provider(),
+            "from": mailer.from_display(),
             "configured": mailer.configured(), "test_recipient": mailer.test_recipient()}
 
 

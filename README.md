@@ -38,7 +38,7 @@ GitHub (main) --push--> Vercel auto-deploy
 - A draft invitation is written for **shortlisted candidates only** (official structure, from Arjun Mehta, with the interview venue and phone number).
 - Set the interview date once; it fills every unsent draft. Sending is blocked until a date is set, and for candidates without an email address or who are no longer shortlisted.
 - Every draft is editable until sent. "Review and send" opens a confirmation; the server also requires `confirm=true` and the exact draft version you reviewed, and refuses to send twice.
-- Sending provider: **Gmail** when `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set (an app password from myaccount.google.com/apppasswords; sends to any address, about 500 a day, no domain needed). Otherwise **Resend** (`RESEND_API_KEY`, `RESEND_FROM`); Resend's sandbox sender only delivers to your own Resend account email, so verify a domain at resend.com/domains and set `RESEND_FROM` to email candidates. `RESEND_TEST_RECIPIENT` turns on a Resend-only test mode that redirects every send to one address.
+- Sending uses **Resend** (`RESEND_API_KEY`, `RESEND_FROM`). Resend's sandbox sender only delivers to your own Resend account email, so verify a domain at resend.com/domains and set `RESEND_FROM` to email candidates. Until then, `RESEND_TEST_RECIPIENT` turns on a test mode that redirects every send to that one address and leaves drafts unsent.
 - Venue and phone live in `api/mailer.py`.
 
 ## How scoring works
