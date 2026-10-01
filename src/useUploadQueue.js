@@ -53,7 +53,7 @@ export function useUploadQueue({ onSaved }) {
       }
     } catch (e) {
       clear()
-      patch(item.id, { status: 'Failed', message: e.message || 'Upload failed.' })
+      patch(item.id, { status: 'Failed', message: e.message || 'Upload failed.', retryable: e.status === 0 || e.status === 429 || e.status >= 500 })
     } finally {
       running.current -= 1
       setQueue((q) => [...q]) // wake the scheduler

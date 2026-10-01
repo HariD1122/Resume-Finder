@@ -41,7 +41,7 @@ function Row({ it, onRetry, onRemove, onViewScores }) {
         </div>
       </div>
       <div className="queue-actions">
-        {it.status === 'Failed' && it.file && !/larger than 4 MB|Unsupported|empty/.test(it.message) && (
+        {it.status === 'Failed' && it.retryable && (
           <button className="btn btn-secondary btn-sm" onClick={() => onRetry(it.id)}>Retry</button>
         )}
         {it.status === 'Queued' && <button className="btn btn-secondary btn-sm" onClick={() => onRemove(it.id)}>Remove</button>}
