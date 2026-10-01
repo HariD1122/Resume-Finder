@@ -137,3 +137,19 @@ th.sticky-1, th.sticky-2 { z-index: 4; }
   .card { padding: var(--sp-4); }
   .toasts { top: 120px; }
 }
+
+/* ---------- emails ---------- */
+.email-list { display: grid; gap: var(--sp-4); }
+.email-list .card + .card { margin-top: 0; }
+.email-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
+.email-head h3 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.field-label { display: block; font-weight: 600; margin: 12px 0 4px; color: var(--blue-900); }
+.text-input, .text-area { width: 100%; border: 1px solid var(--slate-300); border-radius: 10px; padding: 8px 12px; background: #fff; min-height: 40px; }
+.text-area { font-family: var(--font); line-height: 1.6; resize: vertical; }
+.text-input:disabled, .text-area:disabled { background: var(--slate-50); color: var(--slate-600); }
+.email-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.blockers { margin: 8px 0 0; padding-left: 20px; color: var(--amber-fg); font-size: 0.9rem; }
+.date-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.send-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 12px 0 0; }
+.send-facts dt { font-weight: 600; color: var(--slate-600); }
+.send-facts dd { margin: 0; word-break: break-word; }

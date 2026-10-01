@@ -24,7 +24,7 @@ from test_api import FakeDB  # noqa: E402
 fake = FakeDB()
 fake.signed = lambda path: "http://127.0.0.1:8000/api/config"
 for name in ("find_by_hash", "find_by_email", "upload_file", "remove_files", "insert_candidate", "insert_scores",
-             "upsert_result", "delete_candidate", "list_candidates"):
+             "upsert_result", "delete_candidate", "list_candidates", "email_list", "email_insert", "email_update"):
     setattr(db, name, getattr(fake, name))
 db.health_counts = lambda: {
     "candidates": len(fake.cands), "PM": sum(c["role"] == "PM" for c in fake.cands.values()),
@@ -52,18 +52,20 @@ def fake_generate(role, text, pdf):
     first = (text or "Mock Candidate").strip().splitlines()[0][:40]
     reqs = []
     for i, r in enumerate(model_requirements(role)):
-        sc = (seed >> (i * 3)) % 6
+        sc = 5 if "FreightLoop" in (text or "") else (seed >> (i * 3)) % 6  # strong sample CV -> shortlist
         quote = " ".join(words[i * 3:i * 3 + 5]) if sc else "none"
         reqs.append({"id": r.id, "score": sc, "evidence": quote, "reason": f"Mock reason for {r.short}."})
     return json.dumps({
         "is_resume": "INVOICE" not in (text or ""), "full_name": first, "email": f"cand{seed % 10000}@example.com",
         "phone": "+91 98200 1" + str(seed % 10000).zfill(4), "address": None, "current_company": "Mock Co",
         "current_title": "Product Manager", "pm_years": 2 + seed % 6, "location": ["Mumbai", "Pune", "Bengaluru"][seed % 3],
-        "relocation": ["unknown", "willing", "unwilling"][seed % 3], "summary": "Mock summary generated offline.",
+        "relocation": "unknown" if "FreightLoop" in (text or "") else ["unknown", "willing", "unwilling"][seed % 3], "summary": "Mock summary generated offline.",
         "applied_role_hint": role, "requirements": reqs, "probe_questions": ["Mock question one?", "Mock question two?"]})
 
 
 gemini._generate = fake_generate
+import mailer  # noqa: E402
+mailer.send_via_resend = lambda to, subject, text, key: 'mock-' + key[:8]  # never really sends
 
 if __name__ == "__main__":
     uvicorn.run(index.app, host="127.0.0.1", port=8000)

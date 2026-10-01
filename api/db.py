@@ -194,3 +194,24 @@ def health_counts() -> dict:
     stamps = [v for v in out["latest_by_role"].values() if v]
     out["latest_updated_at"] = max(stamps) if stamps else None
     return out
+
+
+# ---------- emails ----------
+
+def email_list() -> list:
+    return _check(_req("GET", "/rest/v1/emails?select=*&limit=5000"), "loading emails").json()
+
+
+def email_insert(row: dict):
+    """Insert a draft; an existing row for the candidate is left untouched."""
+    _check(_req("POST", "/rest/v1/emails?on_conflict=candidate_id", json=row,
+                headers={"Prefer": "resolution=ignore-duplicates,return=minimal"}), "saving email draft")
+
+
+def email_update(candidate_id: str, patch: dict, only_statuses: tuple | None = None):
+    """Conditional update; returns the updated row or None if the status condition did not match."""
+    q = f"/rest/v1/emails?candidate_id=eq.{quote(candidate_id, safe='')}"
+    if only_statuses:
+        q += "&status=in.(" + ",".join(only_statuses) + ")"
+    rows = _check(_req("PATCH", q, json=patch, headers={"Prefer": "return=representation"}), "updating email").json()
+    return rows[0] if rows else None

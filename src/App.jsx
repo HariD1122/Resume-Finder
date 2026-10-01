@@ -3,6 +3,7 @@ import { api } from './api/client.js'
 import AccessGate from './components/AccessGate.jsx'
 import ConfirmModal from './components/ConfirmModal.jsx'
 import ContactsTab from './components/ContactsTab.jsx'
+import EmailsTab from './components/EmailsTab.jsx'
 import Header from './components/Header.jsx'
 import { TAB_IDS } from './components/Tabs.jsx'
 import Toasts from './components/Toast.jsx'
@@ -142,7 +143,8 @@ export default function App() {
 
   if (locked) return <AccessGate onUnlocked={() => { setLocked(false); boot() }} />
 
-  const counts = { upload: 0, scores: (data.PM?.count || 0) + (data.SPM?.count || 0), contacts: contacts.length }
+  const shortlisted = ['PM', 'SPM'].reduce((n, r) => n + (data[r]?.candidates || []).filter((c) => c.recommendation === 'Shortlist').length, 0)
+  const counts = { upload: 0, scores: (data.PM?.count || 0) + (data.SPM?.count || 0), contacts: contacts.length, emails: shortlisted }
   const common = { loading, loaded, sync, onRefresh: () => refresh(), onReset: () => setResetOpen(true), onGoUpload: () => goTab('upload'), onDownload: download }
 
   return (
@@ -155,6 +157,7 @@ export default function App() {
         )}
         {tab === 'scores' && <ScoresTab role={scoreRole} onRole={setScoreRole} cfg={cfg} data={data} {...common} />}
         {tab === 'contacts' && <ContactsTab contacts={contacts} notify={notify} {...common} />}
+        {tab === 'emails' && <EmailsTab notify={notify} onGoUpload={() => goTab('upload')} />}
       </main>
       <footer className="footer">Recommendations only. A person makes every hiring decision.</footer>
       <Toasts toasts={toasts} onClose={closeToast} />

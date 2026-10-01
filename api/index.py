@@ -12,9 +12,11 @@ from fastapi import FastAPI, File, Form, Request, UploadFile  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
 
 import db  # noqa: E402
+import mailer  # noqa: E402
 import extract  # noqa: E402
 import gemini  # noqa: E402
 import scoring  # noqa: E402
@@ -136,7 +138,7 @@ def health(request: Request):
         sb = False
     gm = gemini.gemini_ok()
     return {"status": "ok" if sb and gm else "degraded", "supabase": sb, "gemini": gm,
-            "access_required": required,
+            "access_required": required, "email_configured": bool(os.environ.get("RESEND_API_KEY")),
             "counts": {k: counts.get(k, 0) for k in ("candidates", "PM", "SPM")},
             "latest_updated_at": counts.get("latest_updated_at"),
             "latest_by_role": counts.get("latest_by_role", {}),
@@ -305,3 +307,128 @@ def recompute():
                           "probe_questions": old.get("probe_questions") or [], "rubric_version": RUBRIC_VERSION})
         n += 1
     return {"recomputed": n, "rubric_version": RUBRIC_VERSION}
+
+
+# ---------- shortlist emails (drafted here, sent only after explicit confirmation) ----------
+
+class EmailEdit(BaseModel):
+    subject: str
+    body: str
+
+
+class DateIn(BaseModel):
+    interview_at: str = ""
+
+
+class SendIn(BaseModel):
+    confirm: bool = False
+    version: str = ""
+
+
+def _email_view(c: dict, e: dict) -> dict:
+    shortlisted = _result_of(c).get("recommendation") == "Shortlist"
+    editable = e["status"] in ("draft", "failed")
+    problems = mailer.blockers(e, shortlisted) if editable else []
+    return {"candidate_id": c["id"], "full_name": c.get("full_name"), "role": c["role"],
+            "to_email": e.get("to_email"), "weighted_score": float(_result_of(c).get("weighted_score", 0) or 0),
+            "subject": e["subject"], "body": e["body"], "interview_at": e.get("interview_at"),
+            "status": e["status"], "error": e.get("error"), "sent_at": e.get("sent_at"),
+            "version": e.get("updated_at"), "editable": editable, "blockers": problems,
+            "can_send": editable and not problems}
+
+
+def _ensure_drafts():
+    """Creates a draft for every shortlisted candidate that has none. Returns (candidates, emails, default_date)."""
+    cands = {c["id"]: c for c in db.list_candidates(None)}
+    existing = {e["candidate_id"]: e for e in db.email_list()}
+    default_date = next((e["interview_at"] for e in sorted(existing.values(), key=lambda x: x.get("updated_at") or "", reverse=True)
+                         if e.get("interview_at")), None)
+    created = False
+    for cid, c in cands.items():
+        if _result_of(c).get("recommendation") == "Shortlist" and cid not in existing:
+            db.email_insert({"candidate_id": cid, "to_email": c.get("email"), "subject": mailer.subject_for(c["role"]),
+                             "body": mailer.body_for(c.get("full_name"), c["role"], default_date),
+                             "interview_at": default_date, "status": "draft"})
+            created = True
+    if created:
+        existing = {e["candidate_id"]: e for e in db.email_list()}
+    return cands, existing, default_date
+
+
+@app.get("/api/emails")
+def list_emails():
+    """Drafts for shortlisted candidates only (created on first view), plus anything already sent."""
+    cands, existing, default_date = _ensure_drafts()
+    rows = []
+    for cid, e in existing.items():
+        c = cands.get(cid)
+        if not c:
+            continue
+        if _result_of(c).get("recommendation") != "Shortlist" and e["status"] not in ("sent", "sending"):
+            continue  # a draft for someone no longer shortlisted is hidden, never sent
+        rows.append(_email_view(c, e))
+    rows.sort(key=lambda r: (r["status"] == "sent", r["role"], -r["weighted_score"]))
+    return {"count": len(rows), "emails": rows, "interview_at": default_date,
+            "from": os.environ.get("RESEND_FROM") or "Arjun Mehta <onboarding@resend.dev>",
+            "configured": bool(os.environ.get("RESEND_API_KEY"))}
+
+
+@app.put("/api/emails/{candidate_id}")
+def edit_email(candidate_id: str, payload: EmailEdit):
+    if not payload.subject.strip() or not payload.body.strip():
+        raise ApiError(422, "empty_email", "Subject and body cannot be empty.")
+    row = db.email_update(candidate_id, {"subject": payload.subject.strip(), "body": payload.body, "edited": True,
+                                          "status": "draft", "error": None}, ("draft", "failed"))
+    if not row:
+        raise ApiError(409, "not_editable", "This email was already sent or does not exist, so it cannot be edited.")
+    return {"ok": True, "version": row["updated_at"]}
+
+
+@app.post("/api/emails/interview-date")
+def set_interview_date(payload: DateIn):
+    """Apply one interview date/time to every unsent draft."""
+    cands, existing, _ = _ensure_drafts()
+    n = 0
+    for e in existing.values():
+        c = cands.get(e["candidate_id"])
+        if not c or e["status"] not in ("draft", "failed"):
+            continue
+        patch = mailer.apply_date(e, payload.interview_at)
+        if patch["body"] is None:
+            patch["body"] = mailer.body_for(c.get("full_name"), c["role"], payload.interview_at)
+        db.email_update(e["candidate_id"], patch, ("draft", "failed"))
+        n += 1
+    return {"updated": n}
+
+
+@app.post("/api/emails/{candidate_id}/send")
+def send_email(candidate_id: str, payload: SendIn):
+    """Sends ONE email, only with confirm=true and the exact version the person reviewed."""
+    if payload.confirm is not True:
+        raise ApiError(400, "confirmation_required", "Explicit confirmation is required to send.")
+    cands = {c["id"]: c for c in db.list_candidates(None)}
+    c = cands.get(candidate_id)
+    e = next((x for x in db.email_list() if x["candidate_id"] == candidate_id), None)
+    if not c or not e:
+        raise ApiError(404, "not_found", "No draft exists for this candidate.")
+    if e["status"] in ("sent", "sending"):
+        raise ApiError(409, "already_sent", "This email was already sent.")
+    if e.get("updated_at") != payload.version:
+        raise ApiError(409, "stale_version", "The draft changed since you reviewed it. Please review it again.")
+    problems = mailer.blockers(e, _result_of(c).get("recommendation") == "Shortlist")
+    if problems:
+        raise ApiError(422, "blocked", " ".join(problems))
+    claimed = db.email_update(candidate_id, {"status": "sending", "error": None}, ("draft", "failed"))
+    if not claimed:
+        raise ApiError(409, "already_sent", "This email is already being sent or was sent.")
+    try:
+        rid = mailer.send_via_resend(e["to_email"], e["subject"], e["body"], f"shortlist-{candidate_id}-{claimed['updated_at']}")
+    except ApiError as ex:
+        db.email_update(candidate_id, {"status": "failed", "error": ex.message[:500]})
+        raise
+    except Exception:
+        db.email_update(candidate_id, {"status": "failed", "error": "Unexpected error while sending."})
+        raise ApiError(500, "send_failed", "Unexpected error while sending. Nothing was confirmed as sent.")
+    sent = db.email_update(candidate_id, {"status": "sent", "resend_id": rid,
+                                          "sent_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    return {"status": "sent", "resend_id": rid, "sent_at": (sent or {}).get("sent_at")}

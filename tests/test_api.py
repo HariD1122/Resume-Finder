@@ -17,6 +17,7 @@ FIX = os.path.join(os.path.dirname(__file__), "fixtures")
 class FakeDB:
     def __init__(self):
         self.cands, self.scores, self.results, self.files = {}, {}, {}, {}
+        self.emails, self.tick = {}, 0
 
     def find_by_hash(self, role, h):
         return next((c["id"] for c in self.cands.values() if c["role"] == role and c["file_hash"] == h), None)
@@ -43,6 +44,23 @@ class FakeDB:
 
     def delete_candidate(self, cid):
         self.cands.pop(cid, None)
+
+    def email_list(self):
+        return [dict(e) for e in self.emails.values()]
+
+    def email_insert(self, row):
+        if row["candidate_id"] not in self.emails:
+            self.tick += 1
+            self.emails[row["candidate_id"]] = dict(row, edited=False, status=row.get("status", "draft"), error=None,
+                                                    updated_at=f"v{self.tick}", sent_at=None)
+
+    def email_update(self, cid, patch, only=None):
+        e = self.emails.get(cid)
+        if not e or (only and e["status"] not in only):
+            return None
+        self.tick += 1
+        e.update(patch, updated_at=f"v{self.tick}")
+        return dict(e)
 
     def list_candidates(self, role=None):
         return [dict(c, scores=self.scores.get(c["id"], []), results=self.results.get(c["id"]))

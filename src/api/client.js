@@ -38,6 +38,8 @@ async function request(path, opts = {}) {
   return body
 }
 
+const jsonOpts = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
 export const api = {
   health: () => request('/api/health'),
   authCheck: () => request('/api/auth-check'),
@@ -46,6 +48,10 @@ export const api = {
   contacts: () => request('/api/contacts'),
   resumeUrl: (id) => request(`/api/resume-url?candidate_id=${encodeURIComponent(id)}`),
   reset: () => request('/api/reset', { method: 'POST' }),
+  emails: () => request('/api/emails'),
+  editEmail: (id, { subject, body }) => request(`/api/emails/${encodeURIComponent(id)}`, jsonOpts('PUT', { subject, body })),
+  setInterviewDate: (interview_at) => request('/api/emails/interview-date', jsonOpts('POST', { interview_at })),
+  sendEmail: (id, version) => request(`/api/emails/${encodeURIComponent(id)}/send`, jsonOpts('POST', { confirm: true, version })),
 }
 
 // XHR so we get real upload progress. onUploaded fires when the bytes have been sent.

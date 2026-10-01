@@ -1,17 +1,17 @@
 import { useRef } from 'react'
 
-export const TAB_IDS = ['upload', 'scores', 'contacts']
-const LABELS = { upload: 'Upload', scores: 'Scores', contacts: 'Contacts' }
+export const TAB_IDS = ['upload', 'scores', 'contacts', 'emails']
+const LABELS = { upload: 'Upload', scores: 'Scores', contacts: 'Contacts', emails: 'Emails' }
 
 export default function Tabs({ active, onChange, counts }) {
   const refs = useRef({})
   const onKey = (e) => {
     const i = TAB_IDS.indexOf(active)
     let n = null
-    if (e.key === 'ArrowRight') n = TAB_IDS[(i + 1) % 3]
-    if (e.key === 'ArrowLeft') n = TAB_IDS[(i + 2) % 3]
+    if (e.key === 'ArrowRight') n = TAB_IDS[(i + 1) % TAB_IDS.length]
+    if (e.key === 'ArrowLeft') n = TAB_IDS[(i + TAB_IDS.length - 1) % TAB_IDS.length]
     if (e.key === 'Home') n = TAB_IDS[0]
-    if (e.key === 'End') n = TAB_IDS[2]
+    if (e.key === 'End') n = TAB_IDS[TAB_IDS.length - 1]
     if (n) { e.preventDefault(); onChange(n); refs.current[n]?.focus() }
   }
   return (

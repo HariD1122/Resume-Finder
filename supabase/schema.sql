@@ -62,3 +62,21 @@ alter table results enable row level security;
 -- Private storage bucket for the original resume files
 insert into storage.buckets (id, name, public) values ('resumes', 'resumes', false)
 on conflict (id) do nothing;
+
+-- Shortlist emails: drafted by the app, sent only after a person confirms
+create table if not exists emails (
+  candidate_id uuid primary key references candidates(id) on delete cascade,
+  to_email text,
+  subject text not null,
+  body text not null,
+  interview_at text,
+  edited boolean not null default false,
+  status text not null default 'draft' check (status in ('draft','sending','sent','failed')),
+  error text, resend_id text, sent_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table emails enable row level security;
+drop trigger if exists emails_set_updated_at on emails;
+create trigger emails_set_updated_at before update on emails
+  for each row execute function set_updated_at();
