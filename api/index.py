@@ -138,7 +138,7 @@ def health(request: Request):
         sb = False
     gm = gemini.gemini_ok()
     return {"status": "ok" if sb and gm else "degraded", "supabase": sb, "gemini": gm,
-            "access_required": required, "email_configured": bool(os.environ.get("RESEND_API_KEY")),
+            "access_required": required, "email_configured": mailer.configured(), "email_provider": mailer.provider(),
             "counts": {k: counts.get(k, 0) for k in ("candidates", "PM", "SPM")},
             "latest_updated_at": counts.get("latest_updated_at"),
             "latest_by_role": counts.get("latest_by_role", {}),
@@ -369,8 +369,8 @@ def list_emails():
         rows.append(_email_view(c, e))
     rows.sort(key=lambda r: (r["status"] == "sent", r["role"], -r["weighted_score"]))
     return {"count": len(rows), "emails": rows, "interview_at": default_date,
-            "from": os.environ.get("RESEND_FROM") or "Arjun Mehta <onboarding@resend.dev>",
-            "configured": bool(os.environ.get("RESEND_API_KEY")), "test_recipient": mailer.test_recipient()}
+            "from": mailer.from_display(), "provider": mailer.provider(),
+            "configured": mailer.configured(), "test_recipient": mailer.test_recipient()}
 
 
 @app.put("/api/emails/{candidate_id}")
@@ -420,14 +420,14 @@ def send_email(candidate_id: str, payload: SendIn):
         raise ApiError(422, "blocked", " ".join(problems))
     test_to = mailer.test_recipient()
     if test_to:  # test mode: send a labelled copy to the test address; the real draft stays unsent
-        rid = mailer.send_via_resend(test_to, f"[TEST - intended for {e['to_email']}] {e['subject']}", e["body"],
+        rid = mailer.send_email(test_to, f"[TEST - intended for {e['to_email']}] {e['subject']}", e["body"],
                                      f"test-{candidate_id}-{e.get('updated_at')}-{int(time.time())}")
         return {"status": "test_sent", "sent_to": test_to, "resend_id": rid}
     claimed = db.email_update(candidate_id, {"status": "sending", "error": None}, ("draft", "failed"))
     if not claimed:
         raise ApiError(409, "already_sent", "This email is already being sent or was sent.")
     try:
-        rid = mailer.send_via_resend(e["to_email"], e["subject"], e["body"], f"shortlist-{candidate_id}-{claimed['updated_at']}")
+        rid = mailer.send_email(e["to_email"], e["subject"], e["body"], f"shortlist-{candidate_id}-{claimed['updated_at']}")
     except ApiError as ex:
         db.email_update(candidate_id, {"status": "failed", "error": ex.message[:500]})
         raise

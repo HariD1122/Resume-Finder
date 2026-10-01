@@ -13,6 +13,8 @@ from errors import ApiError
 from requirements import model_requirements
 from test_api import FIX, FakeDB
 
+REAL_SEND = mailer.send_email  # captured before fixtures replace it
+
 
 @pytest.fixture()
 def env(monkeypatch):
@@ -35,7 +37,7 @@ def env(monkeypatch):
         sent.append({"to": to, "subject": subject, "text": text, "key": key})
         return "re_123"
 
-    monkeypatch.setattr(mailer, "send_via_resend", fake_send)
+    monkeypatch.setattr(mailer, "send_email", fake_send)
     client = TestClient(index.app, raise_server_exceptions=False)
 
     def upload(fname, role="PM", **over):
@@ -133,12 +135,12 @@ def test_resend_failure_marks_failed_and_allows_retry(env, monkeypatch):
     def boom(*a):
         raise ApiError(502, "email_rejected", "The email service rejected the message: testing")
 
-    monkeypatch.setattr(mailer, "send_via_resend", boom)
+    monkeypatch.setattr(mailer, "send_email", boom)
     r = client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": True, "version": e["version"]})
     assert r.status_code == 502, r.text
     f = first(client)
     assert f["status"] == "failed" and "rejected" in f["error"] and f["editable"]
-    monkeypatch.setattr(mailer, "send_via_resend", lambda to, s, t, k: "re_ok")
+    monkeypatch.setattr(mailer, "send_email", lambda to, s, t, k: "re_ok")
     assert client.post(f"/api/emails/{f['candidate_id']}/send", json={"confirm": True, "version": f["version"]}).status_code == 200
 
 
@@ -170,3 +172,70 @@ def test_test_mode_redirects_and_keeps_draft_unsent(env, monkeypatch):
     assert sent[0]["to"] == "owner@example.com" and sent[0]["subject"].startswith("[TEST - intended for a@example.com]")
     assert first(client)["status"] == "draft"  # the real draft is untouched
     assert client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": False, "version": e["version"]}).status_code == 400
+
+
+# ---- Gmail provider (SMTP is faked; nothing is sent)
+class FakeSMTP:
+    log = []
+    fail_login = False
+
+    def __init__(self, host, port, timeout=None, context=None):
+        FakeSMTP.log.append(("connect", host, port))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def login(self, user, pw):
+        if FakeSMTP.fail_login:
+            import smtplib
+            raise smtplib.SMTPAuthenticationError(535, b"bad")
+        FakeSMTP.log.append(("login", user, pw))
+
+    def send_message(self, msg):
+        FakeSMTP.log.append(("send", msg["To"], msg["From"], msg["Subject"], msg.get_body(("plain",)).get_content()))
+
+
+@pytest.fixture()
+def gmail(monkeypatch):
+    import smtplib
+    FakeSMTP.log, FakeSMTP.fail_login = [], False
+    monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSMTP)
+    monkeypatch.setenv("GMAIL_USER", "owner@gmail.com")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "abcd efgh ijkl mnop")
+    monkeypatch.setenv("RESEND_TEST_RECIPIENT", "owner@gmail.com")  # must be ignored with Gmail
+    return FakeSMTP
+
+
+def test_gmail_provider_sends_to_any_address(gmail):
+    assert mailer.provider() == "gmail" and mailer.test_recipient() is None
+    mid = mailer._send_gmail("someone@anydomain.com", "Subj", "Hello\n\nBody")
+    kinds = [x[0] for x in gmail.log]
+    assert kinds == ["connect", "login", "send"] and mid.startswith("<")
+    assert gmail.log[1][2] == "abcdefghijklmnop"  # spaces stripped from the app password
+    sent = gmail.log[2]
+    assert sent[1] == "someone@anydomain.com" and "Arjun Mehta" in sent[2] and "owner@gmail.com" in sent[2]
+
+
+def test_gmail_auth_failure_is_clear(gmail):
+    gmail.fail_login = True
+    with pytest.raises(ApiError) as e:
+        mailer._send_gmail("x@y.com", "s", "t")
+    assert e.value.code == "email_auth" and "app password" in e.value.message
+
+
+def test_full_send_flow_with_gmail_is_real_not_test_mode(env, gmail, monkeypatch):
+    client, _, _, _, upload = env
+    monkeypatch.setattr(mailer, "send_email", REAL_SEND)  # run the real dispatcher against the fake SMTP
+    FakeSMTP.log = []
+    upload("strong_pm.pdf")
+    client.post("/api/emails/interview-date", json={"interview_at": "Monday 10 AM"})
+    e = first(client)
+    assert client.get("/api/emails").json()["provider"] == "gmail"
+    r = client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": True, "version": e["version"]})
+    assert r.status_code == 200 and r.json()["status"] == "sent"
+    sends = [x for x in FakeSMTP.log if x[0] == "send"]
+    assert len(sends) == 1 and sends[0][1] == "a@example.com" and not sends[0][3].startswith("[TEST")
+    assert first(client)["status"] == "sent"

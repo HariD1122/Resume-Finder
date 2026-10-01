@@ -65,7 +65,7 @@ def fake_generate(role, text, pdf):
 
 gemini._generate = fake_generate
 import mailer  # noqa: E402
-mailer.send_via_resend = lambda to, subject, text, key: 'mock-' + key[:8]  # never really sends
+mailer.send_email = lambda to, subject, text, key: 'mock-' + key[:8]  # never really sends
 
 if __name__ == "__main__":
     uvicorn.run(index.app, host="127.0.0.1", port=8000)
