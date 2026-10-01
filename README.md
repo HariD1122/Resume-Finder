@@ -2,7 +2,7 @@
 
 Upload CVs, let Gemini extract the facts and score each candidate against weighted role requirements, and review a ranked, evidence-backed shortlist. Built for the (fictional) Kargo hiring case: a founder with two open roles, 60 CVs and no record of why anyone was shortlisted.
 
-**The app recommends. A person decides.** It never emails candidates and never says "rejected".
+**The app recommends. A person decides.** It never says "rejected", and it sends an email only after a person reviews it and clicks confirm.
 
 ## Architecture
 
@@ -33,6 +33,14 @@ GitHub (main) --push--> Vercel auto-deploy
    No keys yet? `python scripts/dev_mock.py` runs the API with an in-memory database and a **fake** Gemini (UI exploration only).
 4. Tests: `python scripts/make_fixtures.py && python -m pytest` (no network needed). Fixtures are fictional CVs.
 
+## Shortlist emails (Emails tab)
+
+- A draft invitation is written for **shortlisted candidates only** (official structure, from Arjun Mehta, with the interview venue and phone number).
+- Set the interview date once; it fills every unsent draft. Sending is blocked until a date is set, and for candidates without an email address or who are no longer shortlisted.
+- Every draft is editable until sent. "Review and send" opens a confirmation; the server also requires `confirm=true` and the exact draft version you reviewed, and refuses to send twice.
+- Sending uses Resend (`RESEND_API_KEY`, `RESEND_FROM`). Resend's test sender only delivers to your own Resend account email; verify a domain in Resend and set `RESEND_FROM` to email candidates.
+- Venue and phone live in `api/mailer.py`.
+
 ## How scoring works
 
 - Requirements, weights and rubric anchors live in `api/requirements.py`; thresholds and limits in `api/constants.py`. Each role's weights total exactly 100 (unit-tested).
@@ -48,7 +56,7 @@ The score ranks fit to the **job description**. The case's own finding is that t
 
 ## API
 
-`POST /api/upload` (file + role PM|SPM), `GET /api/candidates?role=`, `GET /api/contacts`, `GET /api/resume-url?candidate_id=` (signed URL, 10 min), `GET /api/health`, `GET /api/config`, `POST /api/reset`, `POST /api/recompute`. Errors: `{"error":{"code","message"}}`.
+`POST /api/upload` (file + role PM|SPM), `GET /api/candidates?role=`, `GET /api/contacts`, `GET /api/resume-url?candidate_id=` (signed URL, 10 min), `GET /api/health`, `GET /api/config`, `GET /api/emails`, `PUT /api/emails/{id}`, `POST /api/emails/interview-date`, `POST /api/emails/{id}/send`, `POST /api/reset`, `POST /api/recompute`. Errors: `{"error":{"code","message"}}`.
 
 ## Privacy and security
 
@@ -60,7 +68,7 @@ The score ranks fit to the **job description**. The case's own finding is that t
 
 ## Known limits
 
-4 MB file cap (Vercel request limit); legacy `.doc` is best effort; Gemini rate limits mean uploads run one at a time; scanned PDFs are read by Gemini directly; no emails are sent.
+4 MB file cap (Vercel request limit); legacy `.doc` is best effort; Gemini rate limits mean uploads run one at a time; scanned PDFs are read by Gemini directly; emails go out only after confirmation in the Emails tab.
 
 ## Decisions and assumptions
 
@@ -73,4 +81,4 @@ The score ranks fit to the **job description**. The case's own finding is that t
 
 ## Roadmap (out of scope now)
 
-Calibration against the 8 past hires; a decision column (move forward / hold / pass) for the founder; Resend emails sent only after that decision (invites for advanced candidates, respectful replies for everyone else, and follow-up with the two August candidates).
+Calibration against the 8 past hires; a decision column (move forward / hold / pass) for the founder; respectful replies for candidates who are not advanced, and follow-up with the two August candidates (invitation emails for shortlisted candidates already exist).
