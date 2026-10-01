@@ -21,7 +21,7 @@ export function formatInterview(local) {
 
 const STATUS = { draft: ['Draft', 'chip-amber'], failed: ['Send failed', 'chip-red'], sent: ['Sent', 'chip-green'], sending: ['Sending', 'chip-blue'] }
 
-function SendDialog({ item, from, busy, onCancel, onConfirm }) {
+function SendDialog({ item, from, testTo, busy, onCancel, onConfirm }) {
   const ref = useRef(null)
   useEffect(() => {
     const prev = document.activeElement
@@ -41,10 +41,12 @@ function SendDialog({ item, from, busy, onCancel, onConfirm }) {
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="send-title" ref={ref}>
-        <h2 id="send-title" style={{ color: 'var(--blue-900)' }}>Send this email?</h2>
-        <p>This will send a real email to the candidate. It cannot be unsent.</p>
+        <h2 id="send-title" style={{ color: 'var(--blue-900)' }}>{testTo ? 'Send a test email?' : 'Send this email?'}</h2>
+        {testTo
+          ? <p>Test mode: a copy goes to <strong>{testTo}</strong> only. The candidate is not emailed and this draft stays unsent.</p>
+          : <p>This will send a real email to the candidate. It cannot be unsent.</p>}
         <dl className="send-facts">
-          <dt>To</dt><dd>{item.full_name} &lt;{item.to_email}&gt;</dd>
+          <dt>To</dt><dd>{testTo ? testTo : `${item.full_name} <${item.to_email}>`}</dd>
           <dt>From</dt><dd>{from}</dd>
           <dt>Subject</dt><dd>{item.subject}</dd>
           <dt>Interview</dt><dd>{item.interview_at}</dd>
@@ -52,7 +54,7 @@ function SendDialog({ item, from, busy, onCancel, onConfirm }) {
         <div className="modal-actions">
           <button className="btn btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
           <button className="btn btn-primary" onClick={onConfirm} disabled={busy}>
-            {busy ? <><span className="spinner" /> Sending…</> : 'Yes, send email'}
+            {busy ? <><span className="spinner" /> Sending…</> : testTo ? 'Yes, send test email' : 'Yes, send email'}
           </button>
         </div>
       </div>
@@ -88,7 +90,7 @@ function EmailCard({ item, from, edit, onChange, onSave, onSend, busy }) {
         <div className="email-actions">
           <button className="btn btn-secondary" disabled={!dirty || busy} onClick={() => onSave(item.candidate_id)}>Save changes</button>
           <button className="btn btn-primary" disabled={!item.can_send || dirty || busy} onClick={() => onSend(item)}
-            title={dirty ? 'Save your changes first' : undefined}>Review and send…</button>
+            title={dirty ? 'Save your changes first' : undefined}>{testTo ? 'Send test…' : 'Review and send…'}</button>
           {dirty && <span className="muted">Unsaved changes. Save before sending.</span>}
         </div>
       )}
@@ -108,7 +110,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
     setState((s) => ({ ...s, loading: true }))
     try {
       const r = await api.emails()
-      setState({ loaded: true, loading: false, emails: r.emails, from: r.from, configured: r.configured, interview_at: r.interview_at })
+      setState({ loaded: true, loading: false, emails: r.emails, from: r.from, configured: r.configured, interview_at: r.interview_at, test_recipient: r.test_recipient })
       setEdits((e) => Object.fromEntries(Object.entries(e).filter(([id, v]) => {
         const it = r.emails.find((x) => x.candidate_id === id)
         return it && (v.subject !== it.subject || v.body !== it.body)
@@ -149,8 +151,8 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
   const doSend = async () => {
     setSending(true)
     try {
-      await api.sendEmail(confirm.candidate_id, confirm.version)
-      notify('success', `Email sent to ${confirm.full_name}.`)
+      const r = await api.sendEmail(confirm.candidate_id, confirm.version)
+      notify('success', r.status === 'test_sent' ? `Test email sent to ${r.sent_to}. ${confirm.full_name} was not emailed.` : `Email sent to ${confirm.full_name}.`)
       setConfirm(null)
     } catch (e) { notify('error', e.message); setConfirm(null) }
     setSending(false)
@@ -159,7 +161,8 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
 
   const { emails, loaded, loading } = state
   const drafts = emails.filter((e) => e.status !== 'sent').length
-  const testSender = /onboarding@resend\.dev/i.test(state.from)
+  const testTo = state.test_recipient
+  const testSender = !testTo && /onboarding@resend\.dev/i.test(state.from)
 
   return (
     <section aria-labelledby="emails-h">
@@ -170,6 +173,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <p>Drafts are written only for <strong>shortlisted</strong> candidates. <strong>Nothing is sent until you review an email and confirm.</strong> You can edit any draft before sending.</p>
         <p className="muted" style={{ marginTop: 6 }}>From: {state.from || 'not set'} - Venue and phone number are filled in automatically.</p>
+        {testTo && <p className="queue-note" style={{ color: 'var(--amber-fg)' }} role="status"><strong>Test mode:</strong> every email is sent to {testTo} only, not to candidates, and drafts stay unsent. Verify a domain in Resend and remove RESEND_TEST_RECIPIENT to email candidates.</p>}
         {!state.configured && <p className="error-text" role="alert">Email sending is not configured on the server (RESEND_API_KEY is missing).</p>}
         {testSender && <p className="queue-note" style={{ color: 'var(--amber-fg)' }}>The sender is Resend's test address, which only delivers to your own Resend account email. Verify a domain in Resend and set RESEND_FROM to send to candidates.</p>}
         <div className="date-row">
@@ -195,7 +199,7 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
           </div>
         </>
       )}
-      {confirm && <SendDialog item={confirm} from={state.from} busy={sending} onCancel={() => setConfirm(null)} onConfirm={doSend} />}
+      {confirm && <SendDialog item={confirm} from={state.from} testTo={testTo} busy={sending} onCancel={() => setConfirm(null)} onConfirm={doSend} />}
     </section>
   )
 }

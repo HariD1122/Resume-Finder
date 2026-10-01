@@ -370,7 +370,7 @@ def list_emails():
     rows.sort(key=lambda r: (r["status"] == "sent", r["role"], -r["weighted_score"]))
     return {"count": len(rows), "emails": rows, "interview_at": default_date,
             "from": os.environ.get("RESEND_FROM") or "Arjun Mehta <onboarding@resend.dev>",
-            "configured": bool(os.environ.get("RESEND_API_KEY"))}
+            "configured": bool(os.environ.get("RESEND_API_KEY")), "test_recipient": mailer.test_recipient()}
 
 
 @app.put("/api/emails/{candidate_id}")
@@ -418,6 +418,11 @@ def send_email(candidate_id: str, payload: SendIn):
     problems = mailer.blockers(e, _result_of(c).get("recommendation") == "Shortlist")
     if problems:
         raise ApiError(422, "blocked", " ".join(problems))
+    test_to = mailer.test_recipient()
+    if test_to:  # test mode: send a labelled copy to the test address; the real draft stays unsent
+        rid = mailer.send_via_resend(test_to, f"[TEST - intended for {e['to_email']}] {e['subject']}", e["body"],
+                                     f"test-{candidate_id}-{e.get('updated_at')}-{int(time.time())}")
+        return {"status": "test_sent", "sent_to": test_to, "resend_id": rid}
     claimed = db.email_update(candidate_id, {"status": "sending", "error": None}, ("draft", "failed"))
     if not claimed:
         raise ApiError(409, "already_sent", "This email is already being sent or was sent.")

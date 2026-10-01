@@ -16,6 +16,11 @@ PHONE = "1122334455"
 ROLE_TITLES = {"PM": "Product Manager", "SPM": "Senior Product Manager"}
 
 
+def test_recipient():
+    """When set (RESEND_TEST_RECIPIENT), every send goes to this address only, as a labelled test."""
+    return (os.environ.get("RESEND_TEST_RECIPIENT") or "").strip() or None
+
+
 def subject_for(role: str) -> str:
     return f"Shortlisted for the {ROLE_TITLES[role]} role at Kargo - Invitation to In-Person Interview"
 
@@ -93,5 +98,7 @@ def send_via_resend(to: str, subject: str, text: str, idempotency_key: str) -> s
             detail = r.json().get("message", "")
         except Exception:
             detail = ""
-        raise ApiError(502, "email_rejected", f"The email service rejected the message: {detail[:300] or r.status_code}")
+        if "verify a domain" in detail.lower():
+            detail += " (Fix: verify a domain at resend.com/domains and set RESEND_FROM, or set RESEND_TEST_RECIPIENT for test mode.)"
+        raise ApiError(502, "email_rejected", f"The email service rejected the message: {detail[:450] or r.status_code}")
     return r.json().get("id", "")

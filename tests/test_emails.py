@@ -156,3 +156,17 @@ def test_no_longer_shortlisted_is_blocked(env):
 def test_html_is_escaped():
     out = mailer._to_html("Hi <script>alert(1)</script>\n\nBye")
     assert "<script>" not in out and "&lt;script&gt;" in out
+
+
+def test_test_mode_redirects_and_keeps_draft_unsent(env, monkeypatch):
+    client, _, _, sent, upload = env
+    monkeypatch.setenv("RESEND_TEST_RECIPIENT", "owner@example.com")
+    upload("strong_pm.pdf")
+    client.post("/api/emails/interview-date", json={"interview_at": "Monday 10 AM"})
+    e = first(client)
+    assert client.get("/api/emails").json()["test_recipient"] == "owner@example.com"
+    r = client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": True, "version": e["version"]})
+    assert r.status_code == 200 and r.json()["status"] == "test_sent"
+    assert sent[0]["to"] == "owner@example.com" and sent[0]["subject"].startswith("[TEST - intended for a@example.com]")
+    assert first(client)["status"] == "draft"  # the real draft is untouched
+    assert client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": False, "version": e["version"]}).status_code == 400
