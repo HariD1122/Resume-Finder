@@ -102,7 +102,8 @@ def _generate(role: str, resume_text: str | None, pdf_bytes: bytes | None) -> st
                response_mime_type="application/json", response_schema=RESPONSE_SCHEMA, max_output_tokens=8192)
     if "2.5" in model and "flash" in model:
         cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-    resp = _client().models.generate_content(model=model, contents=parts, config=types.GenerateContentConfig(**cfg))
+    client = _client()  # keep a reference: a temporary client is closed when garbage-collected
+    resp = client.models.generate_content(model=model, contents=parts, config=types.GenerateContentConfig(**cfg))
     return resp.text or ""
 
 
@@ -255,7 +256,8 @@ def gemini_ok() -> bool:
     if now - _health["t"] < GEMINI_HEALTH_CACHE_S:
         return _health["ok"]
     try:
-        _client().models.get(model=get_model())
+        client = _client()
+        client.models.get(model=get_model())
         ok = True
     except Exception:
         ok = False
