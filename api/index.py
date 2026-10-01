@@ -434,6 +434,9 @@ def send_email(candidate_id: str, payload: SendIn):
     except Exception:
         db.email_update(candidate_id, {"status": "failed", "error": "Unexpected error while sending."})
         raise ApiError(500, "send_failed", "Unexpected error while sending. Nothing was confirmed as sent.")
-    sent = db.email_update(candidate_id, {"status": "sent", "resend_id": rid,
-                                          "sent_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    return {"status": "sent", "resend_id": rid, "sent_at": (sent or {}).get("sent_at")}
+    sent_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        db.email_update(candidate_id, {"status": "sent", "resend_id": rid, "sent_at": sent_at})
+    except Exception:  # the mail IS out; never report failure (a retry would email the candidate twice)
+        print("warning: email sent but status save failed")
+    return {"status": "sent", "resend_id": rid, "sent_at": sent_at}

@@ -239,3 +239,22 @@ def test_full_send_flow_with_gmail_is_real_not_test_mode(env, gmail, monkeypatch
     sends = [x for x in FakeSMTP.log if x[0] == "send"]
     assert len(sends) == 1 and sends[0][1] == "a@example.com" and not sends[0][3].startswith("[TEST")
     assert first(client)["status"] == "sent"
+
+
+def test_mail_sent_even_if_status_save_fails(env, monkeypatch):
+    client, fake, _, sent, upload = env
+    upload("strong_pm.pdf")
+    client.post("/api/emails/interview-date", json={"interview_at": "Monday 10 AM"})
+    e = first(client)
+    real = fake.email_update
+
+    def flaky(cid, patch, only=None):
+        if patch.get("status") == "sent":
+            raise RuntimeError("db blip")
+        return real(cid, patch, only)
+
+    monkeypatch.setattr(db, "email_update", flaky)
+    r = client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": True, "version": e["version"]})
+    assert r.status_code == 200 and r.json()["status"] == "sent" and len(sent) == 1
+    # still locked against a second send because the row is stuck in 'sending'
+    assert client.post(f"/api/emails/{e['candidate_id']}/send", json={"confirm": True, "version": e["version"]}).status_code == 409

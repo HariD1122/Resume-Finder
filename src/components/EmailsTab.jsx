@@ -127,6 +127,8 @@ export default function EmailsTab({ notify, onGoUpload, onChanged }) {
   const applyDate = async () => {
     const text = formatInterview(when)
     if (!text) return notify('warning', 'Choose a date and time first.')
+    const targets = emails.filter((e) => e.editable).length
+    if (!window.confirm(`Apply "${text}" to ${targets} unsent draft${targets === 1 ? '' : 's'}? This replaces any date already on them.`)) return
     const dirtyCount = Object.keys(edits).length
     if (dirtyCount && !window.confirm('Some drafts have unsaved edits. Applying the date reloads them and discards those edits. Continue?')) return
     try {
